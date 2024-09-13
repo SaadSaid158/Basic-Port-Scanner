@@ -13,10 +13,10 @@ import time
 
 # Configuration
 NUM_THREADS = 100
-DEFAULT_TIMEOUT = 2  
-DEFAULT_PORTS = [80, 443, 22, 21, 25, 110, 143, 3306, 8080]  
+DEFAULT_TIMEOUT = 2
+DEFAULT_PORTS = [80, 443, 22, 21, 25, 110, 143, 3306, 8080]
 HTTP_PORTS = [80, 443]
-RATE_LIMIT = 10  
+RATE_LIMIT = 10
 
 queue = Queue()
 semaphore = asyncio.Semaphore(RATE_LIMIT)
@@ -41,6 +41,7 @@ def grab_banner(ip, port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(DEFAULT_TIMEOUT)
             s.connect((ip, port))
+            s.sendall(b"HEAD / HTTP/1.0\r\n\r\n")
             banner = s.recv(1024).decode('utf-8').strip()
             if banner:
                 logging.info(f"[{ip}:{port}] Banner: {banner}")
@@ -59,20 +60,21 @@ def get_ssl_cert(hostname):
         logging.error(f"Error fetching SSL cert for {hostname}: {e}")
 
 # Asynchronous HTTP Scanning
-async def check_service(ip_or_url, port, service_type='HTTP'):
-    url = f"http://{ip_or_url}" if port in HTTP_PORTS and port == 80 else f"https://{ip_or_url}"
-    async with semaphore:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=DEFAULT_TIMEOUT) as response:
-                    logging.info(f"[{ip_or_url}:{port}] HTTP {response.status} {response.reason}")
-        except Exception as e:
-            logging.error(f"Error scanning {service_type} for {ip_or_url}:{port}: {e}")
+async def check_service(ip_or_url, port, session):
+    url = f"http://{ip_or_url}" if port == 80 else f"https://{ip_or_url}"
+    try:
+        async with session.get(url, timeout=DEFAULT_TIMEOUT) as response:
+            logging.info(f"[{ip_or_url}:{port}] HTTP {response.status} {response.reason}")
+    except asyncio.TimeoutError:
+        logging.warning(f"Timeout error for {url}")
+    except Exception as e:
+        logging.error(f"Error scanning HTTP service for {url}: {e}")
 
 # Asynchronous Wrapper for Services
 async def scan_services_async(ip_or_url, ports):
-    tasks = [check_service(ip_or_url, port) for port in ports if port in HTTP_PORTS]
-    await asyncio.gather(*tasks)
+    async with aiohttp.ClientSession() as session:
+        tasks = [check_service(ip_or_url, port, session) for port in ports if port in HTTP_PORTS]
+        await asyncio.gather(*tasks)
 
 # General Port Scanning
 def scan_port(ip, port):
@@ -162,20 +164,16 @@ def is_valid_ip(ip):
     except ValueError:
         return False
 
-# Service Detection
-def detect_service(port):
-    services = {
-        22: "SSH",
-        80: "HTTP",
-        443: "HTTPS",
-        21: "FTP",
-        25: "SMTP",
-        110: "POP3",
-        143: "IMAP",
-        3306: "MySQL",
-        8080: "HTTP-Proxy"
-    }
-    return services.get(port, "Unknown")
+# Parse Port List and Ranges
+def parse_ports(ports):
+    port_list = []
+    for part in ports.split(','):
+        if '-' in part:
+            start, end = part.split('-')
+            port_list.extend(range(int(start), int(end) + 1))
+        else:
+            port_list.append(int(part))
+    return port_list
 
 # CLI Arguments Parser
 def parse_args():
@@ -188,22 +186,10 @@ def parse_args():
     parser.add_argument('--timeout', type=int, default=DEFAULT_TIMEOUT, help='Set custom timeout in seconds')
     return parser.parse_args()
 
-# Parse Port List and Ranges
-def parse_ports(ports):
-    port_list = []
-    for part in ports.split(','):
-        if '-' in part:
-            start, end = part.split('-')
-            port_list.extend(range(int(start), int(end) + 1))
-        else:
-            port_list.append(int(part))
-    return port_list
-
 # Main Function
-if __name__ == "__main__":
+async def main():
     args = parse_args()
 
-    # Set custom timeout if provided
     global DEFAULT_TIMEOUT
     DEFAULT_TIMEOUT = args.timeout
 
@@ -212,11 +198,11 @@ if __name__ == "__main__":
         if not resolved_target:
             logging.error(f"Unable to resolve {args.target}")
             sys.exit(1)
-        
+
         ports = parse_ports(args.ports)
         if args.full_scan:
             ports = DEFAULT_PORTS
-        asyncio.run(scan_services_async(resolved_target, ports))
+        await scan_services_async(resolved_target, ports)
         scan_ports(resolved_target, args.ports, show_progress=args.progress)
 
     elif args.subnet:
@@ -225,3 +211,6 @@ if __name__ == "__main__":
     else:
         logging.error("You must provide a target IP/URL with ports or a subnet to scan.")
         sys.exit(1)
+
+if __name__ == "__main__":
+    asyncio.run(main())
