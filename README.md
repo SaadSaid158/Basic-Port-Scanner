@@ -17,6 +17,10 @@ This is an advanced tool for scanning IP addresses, URLs, and subnets to detect 
 - Visual feedback during long scans.
 - Easy-to-use command-line interface with detailed help.
 
+## Disclaimer
+
+**_Use this tool responsibly. This tool is intended for educational purposes and legitimate security testing only._** Unauthorized use of this tool against systems you do not own or have explicit permission to test is illegal and unethical. The creator of this tool is not responsible for any misuse or legal consequences resulting from its use. Always obtain proper authorization before performing security testing. 
+
 ## Installation
 
 1. **Clone the Repository**
