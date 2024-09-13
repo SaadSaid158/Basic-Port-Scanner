@@ -5,7 +5,6 @@
 
 ## Overview
 
-
 This is an advanced tool for scanning IP addresses, URLs, and subnets to detect open ports and associated services. It features multithreaded and asynchronous scanning, customizable timeouts, SSL certificate fetching, banner grabbing, and rate limiting. Designed for penetration testing and network security assessments, this tool offers robust performance and usability.
 
 ## Disclaimer
