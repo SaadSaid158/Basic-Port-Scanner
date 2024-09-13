@@ -1,15 +1,10 @@
 ---
 
-
 # Advanced IP, URL, and Port Scanner Tool
 
 ## Overview
 
 This is an advanced tool for scanning IP addresses, URLs, and subnets to detect open ports and associated services. It features multithreaded and asynchronous scanning, customizable timeouts, SSL certificate fetching, banner grabbing, and rate limiting. Designed for penetration testing and network security assessments, this tool offers robust performance and usability.
-
-## Disclaimer
-
-**_Use this tool responsibly. This tool is intended for educational purposes and legitimate security testing only._** Unauthorized use of this tool against systems you do not own or have explicit permission to test is illegal and unethical. The creator of this tool is not responsible for any misuse or legal consequences resulting from its use. Always obtain proper authorization before performing security testing. 
 
 ## Features
 
