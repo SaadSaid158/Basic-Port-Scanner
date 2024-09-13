@@ -7,7 +7,8 @@ import aiohttp
 import ssl
 from queue import Queue
 from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor
+import logging
+import sys
 import time
 
 # Configuration
@@ -20,12 +21,18 @@ RATE_LIMIT = 10
 queue = Queue()
 semaphore = asyncio.Semaphore(RATE_LIMIT)
 
+# Setup Logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+logging.getLogger().addHandler(console)
+
 # DNS Resolution
 def resolve_dns(target):
     try:
         return socket.gethostbyname(target)
     except socket.gaierror:
-        print(f"Error: Unable to resolve {target}")
+        logging.error(f"Unable to resolve {target}")
         return None
 
 # Banner Grabbing
@@ -36,9 +43,9 @@ def grab_banner(ip, port):
             s.connect((ip, port))
             banner = s.recv(1024).decode('utf-8').strip()
             if banner:
-                print(f"[{ip}:{port}] Banner: {banner}")
+                logging.info(f"[{ip}:{port}] Banner: {banner}")
     except Exception as e:
-        print(f"Error grabbing banner on {ip}:{port}: {e}")
+        logging.error(f"Error grabbing banner on {ip}:{port}: {e}")
 
 # SSL/TLS Certificate Fetching
 def get_ssl_cert(hostname):
@@ -47,24 +54,24 @@ def get_ssl_cert(hostname):
         with socket.create_connection((hostname, 443)) as sock:
             with context.wrap_socket(sock, server_hostname=hostname) as ssock:
                 cert = ssock.getpeercert()
-                print(f"[{hostname}:443] SSL Certificate: {cert}")
+                logging.info(f"[{hostname}:443] SSL Certificate: {cert}")
     except Exception as e:
-        print(f"Error fetching SSL cert for {hostname}: {e}")
+        logging.error(f"Error fetching SSL cert for {hostname}: {e}")
 
 # Asynchronous HTTP Scanning
 async def check_service(ip_or_url, port, service_type='HTTP'):
-    url = f"http://{ip_or_url}" if port == 80 else f"https://{ip_or_url}"
+    url = f"http://{ip_or_url}" if port in HTTP_PORTS and port == 80 else f"https://{ip_or_url}"
     async with semaphore:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=DEFAULT_TIMEOUT) as response:
-                    print(f"[{ip_or_url}:{port}] HTTP {response.status} {response.reason}")
+                    logging.info(f"[{ip_or_url}:{port}] HTTP {response.status} {response.reason}")
         except Exception as e:
-            print(f"Error scanning {service_type} for {ip_or_url}:{port}: {e}")
+            logging.error(f"Error scanning {service_type} for {ip_or_url}:{port}: {e}")
 
 # Asynchronous Wrapper for Services
 async def scan_services_async(ip_or_url, ports):
-    tasks = [check_service(ip_or_url, port) for port in ports]
+    tasks = [check_service(ip_or_url, port) for port in ports if port in HTTP_PORTS]
     await asyncio.gather(*tasks)
 
 # General Port Scanning
@@ -74,12 +81,12 @@ def scan_port(ip, port):
             s.settimeout(DEFAULT_TIMEOUT)
             result = s.connect_ex((ip, port))
             if result == 0:
-                print(f"Open port {port} on {ip}")
+                logging.info(f"Open port {port} on {ip}")
                 grab_banner(ip, port)
                 if port == 443:
                     get_ssl_cert(ip)
     except Exception as e:
-        print(f"Error scanning port {ip}:{port}: {e}")
+        logging.error(f"Error scanning port {ip}:{port}: {e}")
 
 # Worker Function for Threading
 def worker(func, ip_or_url):
@@ -98,7 +105,7 @@ def start_threads(num_threads, worker_func, ip_or_url, task_func):
 # Scan Ports with Progress Bar
 def scan_ports(target, ports, show_progress=False):
     if not is_valid_ip(target) and not target.startswith("http"):
-        print("Invalid IP address or URL")
+        logging.error("Invalid IP address or URL")
         return
 
     port_list = parse_ports(ports)
@@ -119,7 +126,7 @@ def scan_ports(target, ports, show_progress=False):
 # Scan Subnet
 def scan_subnet(subnet, show_progress=False):
     if not is_valid_subnet(subnet):
-        print("Invalid subnet")
+        logging.error("Invalid subnet")
         return
 
     network = ipaddress.ip_network(subnet, strict=False)
@@ -203,8 +210,8 @@ if __name__ == "__main__":
     if args.target:
         resolved_target = resolve_dns(args.target)
         if not resolved_target:
-            print(f"Unable to resolve {args.target}")
-            exit(1)
+            logging.error(f"Unable to resolve {args.target}")
+            sys.exit(1)
         
         ports = parse_ports(args.ports)
         if args.full_scan:
@@ -216,4 +223,5 @@ if __name__ == "__main__":
         scan_subnet(args.subnet, show_progress=args.progress)
 
     else:
-        print("You must provide a target IP/URL with ports or a subnet to scan.")
+        logging.error("You must provide a target IP/URL with ports or a subnet to scan.")
+        sys.exit(1)
