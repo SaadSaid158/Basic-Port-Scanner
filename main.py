@@ -12,10 +12,10 @@ import time
 
 # Configuration
 NUM_THREADS = 100
-DEFAULT_TIMEOUT = 2  # Timeout for socket connections
-DEFAULT_PORTS = [80, 443, 22, 21, 25, 110, 143, 3306, 8080]  # Common Ports
+DEFAULT_TIMEOUT = 2  
+DEFAULT_PORTS = [80, 443, 22, 21, 25, 110, 143, 3306, 8080]  
 HTTP_PORTS = [80, 443]
-RATE_LIMIT = 10  # Requests per second
+RATE_LIMIT = 10  
 
 queue = Queue()
 semaphore = asyncio.Semaphore(RATE_LIMIT)
