@@ -13,6 +13,8 @@ import time
 import json
 import csv
 import random
+import configparser
+import os
 
 # Configuration
 NUM_THREADS = 100
@@ -68,7 +70,47 @@ console = logging.StreamHandler()
 console.setLevel(logging.INFO)
 logging.getLogger().addHandler(console)
 
-# Service identification function
+# Load configuration from file
+def load_config(config_file):
+    config = configparser.ConfigParser()
+    if os.path.exists(config_file):
+        try:
+            config.read(config_file)
+            return config
+        except Exception as e:
+            logging.warning(f"Failed to load config file {config_file}: {e}")
+    return None
+
+# Create default configuration file
+def create_default_config(config_file):
+    config = configparser.ConfigParser()
+    
+    config['DEFAULT'] = {
+        'timeout': '2',
+        'threads': '100',
+        'progress': 'true',
+        'no_banner': 'false',
+        'no_ssl': 'false',
+        'stealth': 'false',
+        'delay': '0'
+    }
+    
+    config['SCAN_PRESETS'] = {
+        'quick': '22,80,443',
+        'common': '21,22,23,25,53,80,110,135,139,143,443,445,993,995,1433,3306,3389,5432,5900,8080',
+        'web': '80,443,8080,8443,8000,9000,9080,9443',
+        'database': '1433,3306,5432,1521,27017,6379',
+        'remote': '22,23,3389,5900,5800'
+    }
+    
+    try:
+        with open(config_file, 'w') as f:
+            config.write(f)
+        print(f"Default configuration file created: {config_file}")
+        return config
+    except Exception as e:
+        logging.error(f"Failed to create config file {config_file}: {e}")
+        return None
 def identify_service(port, banner=None):
     service = COMMON_SERVICES.get(port, "Unknown")
     
@@ -138,10 +180,42 @@ def get_ssl_cert(hostname):
                 if cert:
                     subject = dict(x[0] for x in cert['subject'])
                     issuer = dict(x[0] for x in cert['issuer'])
-                    logging.info(f"[{hostname}:443] SSL Certificate Subject: {subject.get('commonName', 'N/A')}")
-                    logging.info(f"[{hostname}:443] SSL Certificate Issuer: {issuer.get('commonName', 'N/A')}")
+                    
+                    # Get certificate details
+                    common_name = subject.get('commonName', 'N/A')
+                    issuer_name = issuer.get('commonName', 'N/A')
+                    
+                    # Check if certificate is valid
+                    not_before = cert.get('notBefore', '')
+                    not_after = cert.get('notAfter', '')
+                    
+                    # Get protocol and cipher
+                    protocol = ssock.version()
+                    cipher = ssock.cipher()
+                    cipher_name = cipher[0] if cipher else 'Unknown'
+                    
+                    ssl_info = {
+                        'subject_cn': common_name,
+                        'issuer_cn': issuer_name,
+                        'not_before': not_before,
+                        'not_after': not_after,
+                        'protocol': protocol,
+                        'cipher': cipher_name
+                    }
+                    
+                    logging.info(f"[{hostname}:443] SSL Certificate: {common_name} (Issuer: {issuer_name})")
+                    logging.info(f"[{hostname}:443] SSL Protocol: {protocol}, Cipher: {cipher_name}")
+                    
+                    # Store SSL info in scan results
+                    for result in scan_results['open_ports']:
+                        if result['ip'] == hostname and result['port'] == 443:
+                            result['ssl_info'] = ssl_info
+                            break
+                    
+                    return ssl_info
     except Exception as e:
         logging.debug(f"SSL cert fetch failed for {hostname}: {e}")  # Changed to debug level
+        return None
 
 # Asynchronous HTTP Scanning
 async def check_service(ip_or_url, port, session):
@@ -342,9 +416,9 @@ def parse_ports(ports):
 # Print Scan Results Summary
 def print_scan_summary():
     global scan_results
-    print("\n" + "="*70)
+    print("\n" + "="*80)
     print("SCAN RESULTS SUMMARY")
-    print("="*70)
+    print("="*80)
     
     if scan_results['start_time'] and scan_results['end_time']:
         duration = scan_results['end_time'] - scan_results['start_time']
@@ -360,13 +434,18 @@ def print_scan_summary():
     if scan_results['open_ports']:
         print("\nOPEN PORTS:")
         print(f"{'IP':<15} {'Port':<6} {'Service':<12} {'Response(ms)':<12} {'Banner'}")
-        print("-" * 70)
+        print("-" * 80)
         for result in scan_results['open_ports']:
             banner = result.get('banner', '')
             if banner and len(banner) > 40:
                 banner = banner[:37] + "..."
             print(f"{result['ip']:<15} {result['port']:<6} {result.get('service', 'Unknown'):<12} "
                   f"{result.get('response_time', 0):<12} {banner}")
+            
+            # Show SSL information if available
+            if result.get('ssl_info'):
+                ssl_info = result['ssl_info']
+                print(f"{'':>15} {'':>6} {'SSL Info:':<12} {ssl_info.get('protocol', 'N/A')} - {ssl_info.get('subject_cn', 'N/A')}")
     
     if scan_results['errors']:
         print("\nERRORS:")
@@ -375,7 +454,16 @@ def print_scan_summary():
         if len(scan_results['errors']) > 5:
             print(f"  ... and {len(scan_results['errors']) - 5} more errors")
     
-    print("="*70)
+    # Show scan statistics
+    if scan_results['open_ports']:
+        response_times = [r.get('response_time', 0) for r in scan_results['open_ports']]
+        avg_response = sum(response_times) / len(response_times) if response_times else 0
+        print(f"\nSCAN STATISTICS:")
+        print(f"Average Response Time: {avg_response:.2f}ms")
+        print(f"Fastest Response: {min(response_times):.2f}ms")
+        print(f"Slowest Response: {max(response_times):.2f}ms")
+    
+    print("="*80)
 
 # Save scan results to file
 def save_scan_results(filename):
@@ -404,17 +492,26 @@ def save_csv_results(filename):
             writer = csv.writer(csvfile)
             
             # Write header
-            writer.writerow(['IP', 'Port', 'Status', 'Service', 'Response_Time_ms', 'Banner'])
+            writer.writerow(['IP', 'Port', 'Status', 'Service', 'Response_Time_ms', 'Banner', 'SSL_Protocol', 'SSL_Subject'])
             
             # Write open ports
             for result in scan_results['open_ports']:
+                ssl_protocol = ''
+                ssl_subject = ''
+                if result.get('ssl_info'):
+                    ssl_info = result['ssl_info']
+                    ssl_protocol = ssl_info.get('protocol', '')
+                    ssl_subject = ssl_info.get('subject_cn', '')
+                
                 writer.writerow([
                     result['ip'],
                     result['port'],
                     result['status'],
                     result.get('service', 'Unknown'),
                     result.get('response_time', ''),
-                    result.get('banner', '')
+                    result.get('banner', ''),
+                    ssl_protocol,
+                    ssl_subject
                 ])
             
             # Write closed ports (optional, but useful for comprehensive reporting)
@@ -425,7 +522,9 @@ def save_csv_results(filename):
                     result['status'],
                     '',  # No service for closed ports
                     result.get('response_time', ''),
-                    ''   # No banner for closed ports
+                    '',  # No banner for closed ports
+                    '',  # No SSL for closed ports
+                    ''   # No SSL for closed ports
                 ])
                 
     except Exception as e:
@@ -435,23 +534,96 @@ def save_csv_results(filename):
 def parse_args():
     parser = argparse.ArgumentParser(description="Advanced IP, URL, and Port Scanner Tool")
     parser.add_argument('--target', help='Target IP or URL for scanning (e.g., 192.168.1.1, example.com)')
-    parser.add_argument('--ports', help='Comma-separated list or range of ports (e.g., 22,80-100)', default="80,443")
+    parser.add_argument('--ports', help='Comma-separated list or range of ports (e.g., 22,80-100)')
     parser.add_argument('--full-scan', action='store_true', help='Scan all common ports (default: only HTTP/HTTPS ports)')
     parser.add_argument('--subnet', help='Target subnet for IP scanning (e.g., 192.168.1.0/24)', type=str)
     parser.add_argument('--progress', action='store_true', help='Show a progress bar during the scan')
-    parser.add_argument('--timeout', type=int, default=DEFAULT_TIMEOUT, help='Set custom timeout in seconds')
+    parser.add_argument('--timeout', type=int, help='Set custom timeout in seconds')
     parser.add_argument('--no-banner', action='store_true', help='Skip banner grabbing for faster scanning')
     parser.add_argument('--no-ssl', action='store_true', help='Skip SSL certificate fetching for faster scanning')
     parser.add_argument('--output', help='Save scan results to file (.json or .csv format)')
     parser.add_argument('--stealth', action='store_true', help='Enable stealth mode (randomize port order, add delays)')
-    parser.add_argument('--delay', type=float, default=0, help='Add delay between port scans (seconds)')
+    parser.add_argument('--delay', type=float, help='Add delay between port scans (seconds)')
+    parser.add_argument('--config', help='Load settings from configuration file')
+    parser.add_argument('--create-config', help='Create a default configuration file at specified path')
+    parser.add_argument('--preset', help='Use predefined port preset (quick, common, web, database, remote)')
     return parser.parse_args()
 
 # Main Function
 async def main():
-    global scan_results
+    global scan_results, DEFAULT_TIMEOUT, NUM_THREADS
     args = parse_args()
+    
+    # Handle config file creation
+    if args.create_config:
+        create_default_config(args.create_config)
+        return
 
+    # Load configuration file if specified
+    config = None
+    if args.config:
+        config = load_config(args.config)
+        if not config:
+            logging.error(f"Failed to load configuration file: {args.config}")
+            sys.exit(1)
+
+    # Apply config defaults if available
+    if config and 'DEFAULT' in config:
+        defaults = config['DEFAULT']
+        if not args.timeout:
+            args.timeout = int(defaults.get('timeout', DEFAULT_TIMEOUT))
+        if not args.progress and defaults.getboolean('progress', False):
+            args.progress = True
+        if not args.no_banner and defaults.getboolean('no_banner', False):
+            args.no_banner = True
+        if not args.no_ssl and defaults.getboolean('no_ssl', False):
+            args.no_ssl = True
+        if not args.stealth and defaults.getboolean('stealth', False):
+            args.stealth = True
+        if not args.delay:
+            args.delay = float(defaults.get('delay', 0))
+        
+        # Override thread count from config
+        NUM_THREADS = int(defaults.get('threads', NUM_THREADS))
+
+    # Handle presets
+    preset_ports = None
+    if args.preset:
+        if config and 'SCAN_PRESETS' in config and args.preset in config['SCAN_PRESETS']:
+            preset_ports = config['SCAN_PRESETS'][args.preset]
+        else:
+            # Built-in presets
+            presets = {
+                'quick': '22,80,443',
+                'common': '21,22,23,25,53,80,110,135,139,143,443,445,993,995,1433,3306,3389,5432,5900,8080',
+                'web': '80,443,8080,8443,8000,9000,9080,9443',
+                'database': '1433,3306,5432,1521,27017,6379',
+                'remote': '22,23,3389,5900,5800'
+            }
+            preset_ports = presets.get(args.preset)
+            
+        if not preset_ports:
+            logging.error(f"Unknown preset: {args.preset}")
+            logging.info("Available presets: quick, common, web, database, remote")
+            sys.exit(1)
+
+    # Set default ports
+    if not args.ports:
+        if preset_ports:
+            args.ports = preset_ports
+        elif args.full_scan:
+            args.ports = ','.join(map(str, DEFAULT_PORTS))
+        else:
+            args.ports = "80,443"  # Default
+    
+    # Apply timeout
+    if not args.timeout:
+        args.timeout = DEFAULT_TIMEOUT
+    
+    # Apply delay default
+    if not args.delay:
+        args.delay = 0
+    
     # Validate that either target or subnet is provided
     if not args.target and not args.subnet:
         logging.error("You must provide either a target IP/URL (--target) or a subnet (--subnet) to scan.")
@@ -471,7 +643,6 @@ async def main():
         }
     }
 
-    global DEFAULT_TIMEOUT
     DEFAULT_TIMEOUT = args.timeout
 
     # Set banner and SSL options
@@ -484,6 +655,9 @@ async def main():
     
     if stealth_mode:
         logging.info("Stealth mode enabled - randomizing scan order and adding delays")
+    
+    if args.preset:
+        logging.info(f"Using preset: {args.preset} ({args.ports})")
 
     try:
         if args.target:
