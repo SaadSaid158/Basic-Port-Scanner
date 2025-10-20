@@ -4,7 +4,7 @@
 
 ## Overview
 
-This is an advanced tool for scanning IP addresses, URLs, and subnets to detect open ports and associated services. It features multithreaded and asynchronous scanning, customizable timeouts, SSL certificate fetching, banner grabbing, and rate limiting. Designed for penetration testing and network security assessments, this tool offers robust performance and usability.
+This is a basic tool for scanning IP addresses, URLs, and subnets to detect open ports and associated services. It features multithreaded and asynchronous scanning, customizable timeouts, SSL certificate fetching, banner grabbing, and rate limiting. Designed for penetration testing and network security assessments.
 
 ## Features
 
@@ -81,19 +81,12 @@ python3 main.py --subnet 192.168.1.0/24 --progress
 python3 main.py --target 192.168.1.1 --full-scan --timeout 5 --progress
 ```
 
-## Contributing
-
-Contributions are welcome! Please fork the repository and submit a pull request with your changes. Make sure to follow the coding guidelines and include tests if applicable.
-
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
-## Contact
-
-For any questions or issues, please open an issue on GitHub or contact [my email](mailto:saad.dev158@gmail.com).
-
 ---
 
-Happy scanning!
+Trust me, you are better of using Nmap,
 
+- SaadSaid158
