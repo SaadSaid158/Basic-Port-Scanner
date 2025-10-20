@@ -87,6 +87,6 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
-Trust me, you are better of using Nmap,
+Trust me, you are better offusing Nmap,
 
 - SaadSaid158
