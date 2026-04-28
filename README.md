@@ -1,6 +1,6 @@
 ---
 
-# Advanced IP, URL, and Port Scanner Tool
+# Basic IP, URL, and Port Scanner Tool
 
 ## Overview
 
@@ -87,6 +87,6 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
-Trust me, you are better offusing Nmap,
+Trust me, you are better off using Nmap.
 
 - SaadSaid158
